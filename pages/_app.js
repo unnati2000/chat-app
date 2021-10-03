@@ -29,7 +29,7 @@ MyApp.getInitialProps = async ({ ctx }) => {
 
   let pageProps = {};
 
-  const protectedRoutes = ctx.pathname === "/";
+  const protectedRoutes = ctx.pathname === "/" || ctx.pathname === "/messages";
 
   if (!token) {
     destroyCookie(ctx, "token");
