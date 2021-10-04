@@ -23,6 +23,18 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: "https://www.gravatar.com/avatar/?d=mp",
   },
+  newMessagePopup: {
+    type: Boolean,
+    default: true,
+  },
+  unreadMessage: {
+    type: Boolean,
+    default: false,
+  },
+  unreadNotification: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 module.exports = User = mongoose.model("User", userSchema);

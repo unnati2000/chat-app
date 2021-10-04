@@ -14,6 +14,12 @@ const Navbar = ({ user }) => {
               </p>
             </Link>
 
+            <Link href="/messages">
+              <p className="text-blue-500 hover:text-blue-600 text-lg px-3 cursor-pointer">
+                Messages
+              </p>
+            </Link>
+
             <Link href="">
               <Image
                 src="/images.png"
