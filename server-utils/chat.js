@@ -24,6 +24,8 @@ const loadMessages = async (userId, messagesWith) => {
 
 const sendMessage = async (userId, receiverId, message) => {
   try {
+    console.log("message", message);
+
     const user = await Chat.findOne({ user: userId });
     const receiver = await Chat.findOne({ user: receiverId });
 

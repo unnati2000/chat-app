@@ -19,7 +19,7 @@ const {
   addUser,
   removeUser,
   findConnectedUser,
-} = require("./server-utils/sockets");
+} = require("./server-utils/socket");
 const {
   loadMessages,
   sendMessage,
@@ -66,9 +66,11 @@ io.on("connection", (socket) => {
 });
 
 nextApp.prepare().then(() => {
+  app.use("/api/search", require("./api/search.api"));
   app.use("/api/signup", require("./api/signup.api"));
   app.use("/api/auth", require("./api/auth.api"));
   app.use("/api/profile", require("./api/profile.api"));
+  app.use("/api/chats", require("./api/chat.api"));
   app.all("*", (req, res) => handle(req, res));
 
   server.listen(PORT, (err) => {

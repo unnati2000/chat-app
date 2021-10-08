@@ -18,6 +18,13 @@ export default function Home() {
     getUsers(cookie.get("token"))
   );
 
+  if (isLoading) {
+    return <h1>Loading</h1>;
+  }
+  if (error) {
+    console.log(error);
+  }
+
   console.log(data);
   return (
     <div className="flex flex-col items-center justify-center my-3">
@@ -25,10 +32,8 @@ export default function Home() {
         Chit Chat application
       </h1>
       <div className="grid grid-cols-4 my-5 space-x-4 my-4 mx-2">
-        <ProfileCard />
-        <ProfileCard />
-        <ProfileCard />
-        <ProfileCard />
+        {data &&
+          data?.data?.map((profile) => <ProfileCard profile={profile} />)}
       </div>
     </div>
   );

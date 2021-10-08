@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const router = express.Router();
 const sendEmail = require("../server-utils/sendEmail");
 const User = require("../models/user.model");
+const Chat = require("../models/chat.model");
 const upload = require("../middleware/upload.middleware");
 
 router.post("/", upload.single("profilePic"), async (req, res) => {
@@ -49,6 +50,7 @@ router.post("/", upload.single("profilePic"), async (req, res) => {
         html: `<p>Please confirm your Chit chat account registration by visiting this URL and completing the onboarding process: ${verificationUrl}</p>`,
       });
       await user.save();
+      await new Chat({ user: user._id, chats: [] }).save();
     } catch (err) {
       console.log(err);
       user.verificationToken = undefined;

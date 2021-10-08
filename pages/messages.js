@@ -1,161 +1,266 @@
-const Messages = () => {
+import axios from "axios";
+import cookie from "js-cookie";
+import io from "socket.io-client";
+import { useState, useRef, useEffect } from "react";
+import { parseCookies } from "nookies";
+import { useRouter } from "next/router";
+import { QueryClient, useQuery } from "react-query";
+import { dehydrate } from "react-query/hydration";
+import baseURL from "../utils/baseURL.utils";
+import getUserInfo from "../utils/getUserInfo.utils";
+
+import ChatText from "../components/chat/ChatText.component";
+import ChatWindow from "../components/chat/ChatWindow.component";
+import People from "../components/chat/People.component";
+import WindowHeader from "../components/chat/WindowHeader.component";
+import Search from "../components/chat/Search.component";
+import ChatWindowIcon from "../components/chat/ChatWindow.component";
+
+const getChats = async (token) => {
+  const { data } = await axios.get(`${baseURL}/api/chats`, {
+    headers: { Authorization: token },
+  });
+  return data;
+};
+
+const scrollToBottom = (divRef) => {
+  divRef.current && divRef.current.scrollIntoView({ behaviour: "smooth" });
+};
+
+const Messages = ({ user }) => {
+  const { data } = useQuery(["messages"], () => getChats(cookie.get("token")));
+  console.log({ data });
+
+  const router = useRouter();
+  const { chat } = router.query;
+
+  if (chat === user?._id) {
+    router.push("/messages");
+  }
+
+  const [chats, setChats] = useState(data || []);
+  const [connectedUsers, setConnectedUsers] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [banner, setBanner] = useState({ name: "", profilePicUrl: "" });
+
+  const socket = useRef();
+  const openChatId = useRef("");
+  const divRef = useRef();
+
+  // connection to a socket
+  useEffect(() => {
+    if (!socket?.current) {
+      socket.current = io(baseURL);
+    }
+    if (socket?.current) {
+      socket.current.emit("join", { userId: user._id });
+      socket.current.on("connectedUsers", ({ users }) => {
+        users?.length > 0 && setConnectedUsers(users);
+      });
+    }
+  }, []);
+
+  // Loading messages from socket
+  useEffect(() => {
+    // onclicking someone's chat tab
+    const loadMessages = () => {
+      // req backend
+      socket.current.emit("loadMessages", {
+        userId: user._id,
+        messagesWith: chat,
+      });
+
+      // res from backend
+
+      socket.current.on("messagesLoaded", ({ chat }) => {
+        setMessages(chat.messages);
+        setBanner({
+          name: chat.messagesWith.name,
+          profilePicUrl: chat.messagesWith.profilePicUrl,
+        });
+        openChatId.current = chat.messagesWith._id;
+        divRef.current && scrollToBottom(divRef);
+      });
+
+      // if user did not chat with anyone before
+      socket.current.on("noChatFound", async () => {
+        const data = await getUserInfo(chat);
+        console.log(data);
+        if (data?.name && data?.profilePicUrl) {
+          console.log("yes");
+          const chatAlreadyExists = chats?.find(
+            (chatItem) => chatItem.messagesWith === chat
+          );
+          if (!chatAlreadyExists) {
+            console.log("yes2");
+            const newChat = {
+              messagesWith: chat,
+              name: data.name,
+              profilePicUrl: data.profilePicUrl,
+              lastMessage: "",
+              date: Date.now(),
+            };
+            console.log(newChat);
+            console.log("yes3");
+            setChats((prevState) => [newChat, ...prevState]);
+            console.log(chats);
+            console.log("yes4");
+          }
+          setBanner({ name: data?.name, profilePicUrl: data?.profilePicUrl });
+          setMessages([]);
+          openChatId.current = router.query.chat;
+        }
+      });
+    };
+
+    if (socket.current && router.query.chat) {
+      loadMessages();
+    }
+  }, [router.query.chat]);
+
+  const sendMessage = (message) => {
+    if (socket.current) {
+      socket.current.emit("newMessage", {
+        userId: user._id,
+        receiver: openChatId.current || router.query.chat,
+        message,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (socket.current) {
+      socket.current.on("messageSent", ({ newMessage }) => {
+        if (newMessage.receiver === openChatId.current) {
+          setMessages((prev) => [...prev, newMessage]);
+          setChats((prev) => {
+            const previousChat = prev.find(
+              (chat) => chat.messagesWith === newMessage.receiver
+            );
+            previousChat.lastMessage = newMessage.message;
+            previousChat.date = newMessage.date;
+            return [...prev];
+          });
+        }
+      });
+
+      socket.current.on("newMessageReceived", async ({ newMessage }) => {
+        let senderName;
+
+        if (newMessage.sender === openChatId.current) {
+          setMessages((prev) => [...prev, newMessage]);
+          setChats((prev) => {
+            const previousChat = prev.find(
+              (chat) => chat.messagesWith === newMessage.sender
+            );
+            previousChat.lastMessage = newMessage.message;
+            previousChat.date = newMessage.date;
+            senderName = previousChat.name;
+            return [...prev];
+          });
+        } else {
+          const previouslyMessaged =
+            chat.filter((chat) => chat.messagesWith === newMessage.sender)
+              .length > 0;
+          if (previouslyMessaged) {
+            setChats((prev) => {
+              const previousChat = prev.find(
+                (chat) => chat.messagesWith === newMessage.sender
+              );
+              previousChat.lastMessage = newMessage.message;
+              previousChat.date = newMessage.date;
+              senderName = previousChat.name;
+              return [...prev];
+            });
+          } else {
+            const { name, profilePicUrl } = await getUserInfo(
+              newMessage.sender
+            );
+            senderName = name;
+            const newChat = {
+              messagesWith: newMessage.sender,
+              name,
+              profilePicUrl,
+              lastMessage: newMessage.message,
+              date: newMessage.date,
+            };
+            setChats((prev) => [newChat, ...prev]);
+          }
+        }
+        messageNotification(senderName);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    messages.length > 0 && scrollToBottom(divRef);
+  }, [messages]);
+
   return (
     <div className="bg-gray-50 w-screen h-screen sm:p-5">
       <div className="bg-white border border-gray-200 rounded flex h-full">
         <div className="w-full sm:w-1/2 md:w-1/3 lg:w-1/4 h-full">
           <div className="border-b border-gray-200 p-3 relative">
             <button className="flex items-center mx-auto select-none font-semibold focus:outline-none">
-              Unnati Bamania
+              {user?.name}
             </button>
           </div>
 
-          <div className="flex items-center justify-between text-sm border-b border-gray-200">
-            <input
-              type="text"
-              placeholder="Search"
-              className="p-3 w-full bg-gray-100 text-gray-700 "
-            />
-          </div>
-
+          <Search chats={chats} setChats={setChats} />
           <ul className="py-1 overflow-auto">
-            <li>
-              <button className="flex items-center w-full px-4 py-2 select-none hover:bg-gray-100 focus:outline-none">
-                <img
-                  className="w-12 mr-3 rounded-full border"
-                  src="https://i.ibb.co/0ZDqmDs/142030673-447983159572512-6561194794076636819-n.jpg"
-                  alt="Junior Coders"
-                />
-                <div className="transform translate-y-0.5 text-left">
-                  <h3 className="leading-4">junior.coders</h3>
-                  <span className="text-xs text-gray-500">Active 20s ago</span>
-                </div>
-              </button>
-            </li>
-
-            <li>
-              <button className="flex items-center w-full px-4 py-2 select-none hover:bg-gray-100 focus:outline-none">
-                <img
-                  className="w-12 mr-3 rounded-full border"
-                  src="https://i.ibb.co/n8D3NYv/107410209-890400198133639-1048997058040173171-n.jpg"
-                  alt="Tabaghe 16"
-                />
-                <div className="transform translate-y-0.5 text-left">
-                  <h3 className="leading-4">tabaghe16</h3>
-                  <span className="text-xs text-gray-500">Active 6h ago</span>
-                </div>
-              </button>
-            </li>
-
-            <li>
-              <button className="flex items-center w-full px-4 py-2 select-none hover:bg-gray-100 focus:outline-none">
-                <img
-                  className="w-12 mr-3 rounded-full border"
-                  src="https://i.ibb.co/bPb39qC/146062600-790305448495619-4399071814928120955-n.jpg"
-                  alt="MegaCoders"
-                />
-                <div className="transform translate-y-0.5 text-left">
-                  <h3 className="leading-4">megacoders</h3>
-                  <span className="text-xs text-gray-500">
-                    Active 15min ago
-                  </span>
-                </div>
-              </button>
-            </li>
-
-            <li>
-              <button className="flex items-center w-full px-4 py-2 select-none hover:bg-gray-100 focus:outline-none">
-                <img
-                  className="w-12 mr-3 rounded-full border"
-                  src="https://i.ibb.co/Y7H2b8s/83915635-1271088396614888-3530566050498215936-n.jpg"
-                  alt="Graphhit"
-                />
-                <div className="transform translate-y-0.5 text-left">
-                  <h3 className="leading-4">graphhit.ir</h3>
-                  <span className="text-xs text-gray-500">Active 8h ago</span>
-                </div>
-              </button>
-            </li>
-
-            <li>
-              <button className="flex items-center w-full px-4 py-2 select-none hover:bg-gray-100 focus:outline-none">
-                <img
-                  className="w-12 mr-3 rounded-full border"
-                  src="https://i.ibb.co/5RTNZzq/120597858-373955600298386-171038155143224317-n.jpg"
-                  alt="Dex Design"
-                />
-                <div className="transform translate-y-0.5 text-left">
-                  <h3 className="leading-4">dex.design</h3>
-                  <span className="text-xs text-gray-500">
-                    Active 30min ago
-                  </span>
-                </div>
-              </button>
-            </li>
-            <li>
-              <button className="flex items-center w-full px-4 py-2 select-none hover:bg-gray-100 focus:outline-none">
-                <img
-                  className="w-12 mr-3 rounded-full border"
-                  src="https://i.ibb.co/PgxfpHJ/135397005-118438206790158-4813733027837640666-n.jpg"
-                  alt="Khoshbakhti"
-                />
-                <div className="transform translate-y-0.5 text-left">
-                  <h3 className="leading-4">khoshbakhti_official</h3>
-                  <span className="text-xs text-gray-500">
-                    Active Yesterday
-                  </span>
-                </div>
-              </button>
-            </li>
+            {chats ? (
+              chats?.map((chat) => (
+                <People chat={chat} connectedUsers={connectedUsers} />
+              ))
+            ) : (
+              <h1 className="text-blue-500 font-lg">No Users</h1>
+            )}
           </ul>
         </div>
 
-        <div className="hidden flex-col sm:w-1/2 md:w-2/3 lg:w-3/4 border-l border-gray-200 sm:flex items-center">
-          {/* <div className="space-y-5">
-            <div className="border border-black rounded-full inline-flex p-5 items-center justify-center">
-              <svg
-                className="transform translate-y-1"
-                height="52"
-                viewBox="0 0 48 48"
-                width="52"
-              >
-                <path d="M47.8 3.8c-.3-.5-.8-.8-1.3-.8h-45C.9 3.1.3 3.5.1 4S0 5.2.4 5.7l13.2 13c.5.4 1.1.6 1.7.3l16.6-8c.7-.3 1.6-.1 2 .5.4.7.2 1.6-.5 2l-15.6 9.9c-.5.3-.8 1-.7 1.6l4.6 19c.1.6.6 1 1.2 1.1h.2c.5 0 1-.3 1.3-.7l23.2-39c.5-.5.5-1.1.2-1.6z"></path>
-              </svg>
-            </div>
-            <div className="space-y-0.5">
-              <h1 className="font-semibold text-xl">Your Messages</h1>
-              <p className="text-gray-600 min-w-46">
-                Send private photos and messages to a friend or group
-              </p>
-            </div>
-            <button className="bg-blue-500 py-1 px-3 rounded text-white select-none focus:outline-none">
-              Send Message
-            </button>
-          </div> */}
-
-          <div className="flex text-left items-center py-4">
-            <img
-              src="https://ps.w.org/simple-local-avatars/assets/icon-256x256.png?rev=2406995"
-              className="h-10 mr-2 w-10 rounded-full"
-            />
-            <h2 className="text-blue-500 text-xl font-semibold"> Bamania</h2>
-          </div>
-
-          <div className="text-left bg-gray-100 text-gray-600 p-2 rounded my-1">
-            <p>Samne wale ka message</p>
-          </div>
-          <div className="text-right bg-blue-100 p-2 rounded text-blue-500 my-1">
-            <p>My message</p>
-          </div>
-
-          <input
-            type="text"
-            placeholder="Type your chat..."
-            className="w-full align-baseline p-2 bg-gray-100 border border-blue-500 border-2 rounded"
-          />
+        <div className="flex-col sm:w-1/2 md:w-2/3 lg:w-3/4 border-l border-gray-200 sm:flex items-center">
+          {banner?.name && banner?.profilePicUrl ? (
+            <>
+              <WindowHeader banner={banner} />
+              <div className="my-2">
+                {console.log(messages)}
+                {messages?.map((message, index) => {
+                  {
+                    console.log(message);
+                  }
+                  <ChatWindow
+                    divRef={divRef}
+                    key={index}
+                    message={message}
+                    user={user}
+                    setMessages={setMessages}
+                    messagesWith={chat}
+                  />;
+                })}
+              </div>
+              <div className="content-end">
+                <ChatText sendMessage={sendMessage} />
+              </div>
+            </>
+          ) : (
+            <ChatWindowIcon />
+          )}
         </div>
       </div>
     </div>
   );
 };
+
+export async function getServerSideProps(ctx) {
+  const { token } = parseCookies(ctx);
+
+  const queryClient = new QueryClient();
+  await queryClient.prefetchQuery(["messages"], () => getChats(token));
+  return {
+    props: {
+      dehydratedState: dehydrate(queryClient),
+    },
+  };
+}
 
 export default Messages;

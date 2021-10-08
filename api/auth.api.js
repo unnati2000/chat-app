@@ -2,6 +2,8 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const auth = require("../middleware/auth.middleware");
+const User = require("../models/user.model");
+const Chat = require("../models/chat.model");
 const router = express.Router();
 
 router.post("/", async (req, res) => {
@@ -23,6 +25,12 @@ router.post("/", async (req, res) => {
     const isPassword = await bcrypt.compare(password, user.password);
     if (!isPassword) {
       return res.status(401).json({ msg: "Invalid Credentials" });
+    }
+
+    const chat = await Chat.findOne({ user: user._id });
+    if (!chat) {
+      await new Chat({ user: user._id, chats: [] }).save();
+      console.log("Created chat model for ", user._id);
     }
 
     const payload = { userId: user._id };
